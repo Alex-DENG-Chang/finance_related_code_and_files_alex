@@ -1,0 +1,243 @@
+# import torch
+# import torch.nn as nn
+# import numpy as np
+# import pandas as pd
+# import matplotlib.pyplot as plt
+# from sklearn.preprocessing import MinMaxScaler
+
+# # Load data
+# all_in_one = pd.read_excel(r'/Users/alexdengmbp21/Desktop/Fall 24/Master_Thesis/Adjusted_Data/GOLD_BTC_ETH_VIX_Nor_after2017.xlsx', index_col='Week')
+# print(all_in_one)
+
+# gold_close_df = all_in_one['Gold Close']
+# gold_close_nor_df = all_in_one['Gold Close Nor']
+
+# btc_close_df = all_in_one['BTC Close']
+# btc_close_nor_df = all_in_one['BTC Close Nor']
+
+# eth_close_df = all_in_one['ETH Close']
+# eth_close_nor_df = all_in_one['ETH Close Nor']
+
+# vix_close_df = all_in_one['VIX Close']
+# vix_close_nor_df = all_in_one['VIX Close Nor']
+
+# # Define features and target
+# scaler = MinMaxScaler()
+# features = pd.DataFrame({
+#      'Gold Close': gold_close_nor_df,
+#      'VIX Close': vix_close_nor_df,
+#      'ETH CLOSE': eth_close_nor_df
+#  })
+
+# targets = btc_close_nor_df
+
+# # Scale data
+# scaled_features = scaler.fit_transform(features)
+# scaled_targets = scaler.fit_transform(targets.values.reshape(-1, 1))
+
+# # Split into train and test sets
+# train_size = int(0.85 * scaled_targets.shape[0])
+# train_features = scaled_features[:train_size]
+# train_targets = scaled_targets[:train_size]
+# test_features = scaled_features[train_size:]
+# test_targets = scaled_targets[train_size:]
+
+# class LSTMModel(nn.Module):
+#     def __init__(self, input_dim, hidden_dim, output_dim):
+#         super(LSTMModel, self).__init__()
+#         self.hidden_dim = hidden_dim  # Add this line
+#         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=1, batch_first=True)
+#         self.fc = nn.Linear(hidden_dim, output_dim)
+
+#     def forward(self, x):
+#         h0 = torch.zeros(1, x.size(0), self.hidden_dim).to(x.device)
+#         c0 = torch.zeros(1, x.size(0), self.hidden_dim).to(x.device)
+#         out, _ = self.lstm(x, (h0, c0))
+#         out = self.fc(out[:, -1, :])
+#         return out
+
+# # Initialize model and optimizer
+# model = LSTMModel(input_dim=3, hidden_dim=50, output_dim=1)
+# criterion = nn.MSELoss()
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# # Convert numpy arrays to tensors
+# train_X = torch.from_numpy(train_features).float().unsqueeze(1)
+# train_y = torch.from_numpy(train_targets).float()
+
+# test_X = torch.from_numpy(test_features).float().unsqueeze(1)
+# test_y = torch.from_numpy(test_targets).float()
+
+# # Train model
+# for epoch in range(100):
+#     optimizer.zero_grad()
+#     outputs = model(train_X)
+#     loss = criterion(outputs, train_y.view(-1, 1))
+#     loss.backward()
+#     optimizer.step()
+#     print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+
+# # Evaluate model on test set
+# model.eval()
+# with torch.no_grad():
+#     test_outputs = model(test_X)
+#     test_loss = criterion(test_outputs, test_y.view(-1, 1))
+#     print(f'Test Loss: {test_loss.item()}')
+
+# # Plot predicted and actual values
+# predicted_values = test_outputs.detach().numpy()[:, 0]  # Predicted values as NumPy array
+# actual_values = test_y.numpy()  # Convert actual values to NumPy array
+
+# plt.plot(predicted_values, label='Predicted BTC Close')
+# plt.plot(actual_values, label='Actual BTC Close')
+# plt.legend()
+# plt.show()
+
+
+
+
+
+import torch
+import torch.nn as nn
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, r2_score
+from torch.utils.data import DataLoader, TensorDataset
+
+# Load data
+all_in_one = pd.read_excel(
+    r'/Users/alexdengmbp21/Desktop/Fall 24/Master_Thesis/Adjusted_Data/GOLD_BTC_ETH_VIX_Nor_after2017.xlsx',
+    index_col='Week'
+)
+print(all_in_one)
+
+# Extract features and target
+gold_close_nor_df = all_in_one['Gold Close Nor']
+vix_close_nor_df = all_in_one['VIX Close Nor']
+eth_close_nor_df = all_in_one['ETH Close Nor']
+btc_close_nor_df = all_in_one['BTC Close Nor']
+
+# Combine features into a DataFrame
+features = pd.DataFrame({
+    'Gold Close': gold_close_nor_df,
+    'BTC CLOSE': btc_close_nor_df,
+    # 'VIX Close': vix_close_nor_df
+})
+targets = eth_close_nor_df
+
+# Scale data
+scaler = MinMaxScaler()
+scaled_features = scaler.fit_transform(features)
+scaled_targets = scaler.fit_transform(targets.values.reshape(-1, 1))
+
+# Generate sequences for LSTM
+def create_sequences(data, target, seq_length):
+    X, y = [], []
+    for i in range(len(data) - seq_length):
+        X.append(data[i:i + seq_length])
+        y.append(target[i + seq_length])
+    return np.array(X), np.array(y)
+
+seq_length = 10
+X, y = create_sequences(scaled_features, scaled_targets, seq_length)
+
+# Split into train and test sets
+train_size = int(0.6 * len(y))
+train_X, test_X = X[:train_size], X[train_size:]
+train_y, test_y = y[:train_size], y[train_size:]
+
+# Convert data to PyTorch tensors
+train_X = torch.from_numpy(train_X).float()
+train_y = torch.from_numpy(train_y).float()
+test_X = torch.from_numpy(test_X).float()
+test_y = torch.from_numpy(test_y).float()
+
+# Define LSTM model
+class LSTMModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout):
+        super(LSTMModel, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = self.fc(out[:, -1, :])  # Use the last time step's output
+        return out
+
+# Initialize model, loss function, and optimizer
+input_dim = train_X.shape[2]
+hidden_dim = 64
+output_dim = 1
+num_layers = 2
+dropout = 0.2
+
+model = LSTMModel(input_dim, hidden_dim, output_dim, num_layers, dropout)
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# Train the model
+num_epochs = 50
+batch_size = 32
+
+train_dataset = TensorDataset(train_X, train_y)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+train_losses = []
+val_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    epoch_loss = 0.0
+    for X_batch, y_batch in train_loader:
+        optimizer.zero_grad()
+        outputs = model(X_batch)
+        loss = criterion(outputs, y_batch.view(-1, 1))
+        loss.backward()
+        optimizer.step()
+        epoch_loss += loss.item()
+    train_losses.append(epoch_loss / len(train_loader))
+
+    # Validation loss
+    model.eval()
+    with torch.no_grad():
+        val_outputs = model(test_X)
+        val_loss = criterion(val_outputs, test_y.view(-1, 1))
+    val_losses.append(val_loss.item())
+
+    print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+# Evaluate the model
+model.eval()
+with torch.no_grad():
+    predicted = model(test_X).detach().numpy()
+    actual = test_y.numpy()
+
+# Inverse scale the predictions and actual values
+predicted_original = scaler.inverse_transform(predicted)
+actual_original = scaler.inverse_transform(actual.reshape(-1, 1))
+
+# Compute metrics
+mse = mean_squared_error(actual_original, predicted_original)
+r2 = r2_score(actual_original, predicted_original)
+print(f"Test MSE: {mse:.4f}, R2 Score: {r2:.4f}")
+
+# Plot training and validation loss
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Train Loss')
+plt.plot(val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+# Plot predictions vs actual
+plt.figure(figsize=(10, 5))
+plt.plot(actual_original, label='Actual ETH Close')
+plt.plot(predicted_original, label='Predicted ETH Close')
+plt.xlabel('Time')
+plt.ylabel('ETH Close Price')
+plt.legend()
+plt.show()
